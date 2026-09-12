@@ -2,119 +2,189 @@
 
 > **Portable, Pure-Go Agent Memory Graph Database for AI Workflows**
 
-CriteriaDB (`github.com/brokenbots/criteriadb`) is an embedded and standalone memory graph database designed for agentic workflows running in **Criteria** (`github.com/brokenbots/criteria`). It provides multi-dimensional context indexing across temporal timelines, digital/physical location hierarchies, semantic vectors, and factual property graph edges — with strict **zero CGO** portability and **Protobuf-first** schemas.
+CriteriaDB (`github.com/brokenbots/criteriadb`) is a portable, pure-Go agent memory graph database designed for AI workflows running in **Criteria** (`github.com/brokenbots/criteria`). It provides multi-dimensional context indexing across temporal timelines, digital/physical location hierarchies, 768D float32 SIMD vector embeddings, zero-LLM lexical search, and directed property graph edges — with strict **zero CGO** portability (`CGO_ENABLED=0`) and **Protobuf-first** schemas.
 
 ---
 
-## Key Features
+## Architecture Diagram
 
-- **100% Pure Go (`CGO_ENABLED=0`)**: Zero C dependencies. Uses pure-Go memory indexing and `go.etcd.io/bbolt` persistent single-file storage.
-- **Protobuf-First Schemas (`proto/criteriadb/v1/criteriadb.proto`)**: Strict, language-agnostic Protocol Buffers definitions for nodes, edges, temporal info, location info, and gRPC/ConnectRPC interfaces.
-- **Multi-Tier Embedding Strategies**:
-  - **Zero-LLM Mode**: Pure-Go Lexical Token Search (BM25/Jaccard term matching) + Graph Traversal + Temporal Algebra + Location Scoping. Deterministic microsecond execution without LLM/vector requirements.
-  - **Client / Adapter Vectors**: Pass pre-computed float32 vectors directly in Protobuf messages.
-  - **Local HTTP Endpoint**: Auto-generate embeddings via local Ollama (`/v1/embeddings`) or local OpenAI-compatible APIs.
-- **Adapter & Agent Scoping (RBAC & Privacy)**: Scoped access rules allowing agents to read private work, workflow-shared work, peer work, or supervisory cross-adapter graph memories.
-- **Temporal & Tense Indexing**: Relevancy windows (`[ValidFrom, ValidTo]`), Due dates, Point-In-Time (`ValidAt`), and Tense matching (`past`, `present`, `future`, `planned`, `conditional`).
-- **Digital Location Scoping**: Digital path hierarchy (`Machine`, `Repository`, `Project`, `FolderPath`, `FilePath`, `ServiceURL`).
-- **Native Criteria Adapter**: Fully implements Criteria Adapter Protocol (v2) for seamless use inside HCL workflows.
+```text
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                             Criteria Agent Workflow                              │
+│                               (HCL Workflow Step)                                │
+└────────────────────────────────────────┬─────────────────────────────────────────┘
+                                         │ Criteria Adapter Protocol (v2)
+                                         ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                   CriteriaDB Adapter (cmd/criteria-adapter-criteriadb)            │
+│                     Actions: remember, remember_relation, recall, fact_lookup     │
+└────────────────────────────────────────┬─────────────────────────────────────────┘
+                                         │ gRPC / Direct Go API
+                                         ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                             CriteriaDB Memory Engine                             │
+│                           (pkg/memory/ - CGO_ENABLED=0)                          │
+├─────────────────────────┬─────────────────────────┬──────────────────────────────┤
+│    Lexical Inverted     │  768D Vector Cosine     │   Directed Property Graph    │
+│    Index (Zero-LLM)     │   Similarity Engine     │    (Nodes & Directed Edges)  │
+├─────────────────────────┴─────────────────────────┴──────────────────────────────┤
+│                      Pure-Go bbolt Storage (go.etcd.io/bbolt)                    │
+└────────────────────────────────────────┬─────────────────────────────────────────┘
+                                         │ HTTP REST API (port 8081)
+                                         ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│            Interactive D3.js 2D Force-Graph Visualizer Dashboard                 │
+│               (Real-Time Filters, Search & Node Inspection Side Panel)           │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Published OCI Adapter Image & Releases
+
+CriteriaDB adapter binaries are automatically cross-compiled for multiple platforms (`linux/amd64`, `linux/arm64`, `darwin/amd64`, `darwin/arm64`), signed keylessly with Cosign, and published to GitHub Container Registry (GHCR):
+
+- **OCI Image Target**: `ghcr.io/brokenbots/criteria-adapter-criteriadb:0.1.0`
+- **Release Tag**: [`v0.1.0`](https://github.com/brokenbots/criteriadb/releases/tag/v0.1.0)
+- **Signature Verification**:
+  ```bash
+  cosign verify ghcr.io/brokenbots/criteria-adapter-criteriadb:0.1.0 \
+    --certificate-identity-regexp="https://github.com/brokenbots/criteriadb/.*" \
+    --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+  ```
+
+---
+
+## Performance Benchmarks
+
+Engine performance measured on Apple M4 Max (`go test -bench=. -benchmem ./test/...`):
+
+| Benchmark Operation | Throughput / Latency | Allocations | Description |
+| :--- | :--- | :--- | :--- |
+| `BenchmarkEngine_Remember` | `9.04 ms/op` | `28.7 KB / 63 allocs` | Persistent bbolt transaction write |
+| `BenchmarkEngine_Recall_Vector_1k` | **`1.31 ms/op`** | `3.2 MB / 2,014 allocs` | 768D Float32 vector similarity search over 1k nodes |
+| `BenchmarkEngine_Recall_Lexical_1k` | **`1.62 ms/op`** | `2.6 MB / 16,013 allocs` | Zero-LLM lexical token search over 1k nodes |
+| `BenchmarkEngine_Consolidate` | **`302.5 ns/op`** | `0 B / 0 allocs` | Event node consolidation & expired node pruning |
 
 ---
 
 ## Quickstart & Build
 
 ```bash
-# Clone and build binaries
+# Clone repository
 git clone https://github.com/brokenbots/criteriadb.git
 cd criteriadb
 
-# Build binaries (bin/criteriadb & bin/criteria-adapter-criteriadb)
+# Build all binaries (bin/criteriadb, bin/criteria-adapter-criteriadb, bin/criteriadb-ingest)
 make build
 
-# Run unit & integration test suite (CGO_ENABLED=0)
+# Run unit test suite
 make test
+
+# Run performance benchmark suite
+go test -bench=. -benchmem ./test/...
 ```
 
 ---
 
-## Using CriteriaDB in Criteria HCL Workflows
+## CLI Subcommands (`criteriadb`)
 
-Reference CriteriaDB as an adapter block in your Criteria HCL workflow:
+```bash
+criteriadb <command> [options]
+```
+
+### 1. `serve` — Start gRPC Server & Visualizer
+```bash
+criteriadb serve --port 8080 --web-port 8081 --db-path criteriadb.db
+```
+
+### 2. `query` — Terminal Search
+```bash
+criteriadb query --db-path criteriadb.db --text "Zero-CGO persistence" --project criteriadb-demo
+```
+
+### 3. `list` — List All Stored Memory Nodes
+```bash
+criteriadb list --db-path criteriadb.db
+```
+
+### 4. `stats` — Memory Graph Statistics
+```bash
+criteriadb stats --db-path criteriadb.db
+```
+
+### 5. `consolidate` — Memory Pruning & Event Merging
+```bash
+criteriadb consolidate --db-path criteriadb.db --project criteriadb-demo --type fact
+```
+
+### 6. `export` — Export Graph to JSON Backup
+```bash
+criteriadb export --db-path criteriadb.db --output backup.json
+```
+
+### 7. `import` — Import Graph from JSON Backup
+```bash
+criteriadb import --db-path new_db.db --input backup.json
+```
+
+### 8. `viz` — Standalone Interactive D3 Visualizer
+```bash
+criteriadb viz --db-path criteriadb.db --port 8081
+```
+
+---
+
+## Criteria HCL Workflow Example
+
+Reference CriteriaDB inside a Criteria workflow (`examples/criteriadb_memory_demo.hcl`):
 
 ```hcl
 workflow {
-  name          = "agent_memory_demo"
+  name          = "criteriadb_memory_demo"
   version       = "1"
-  initial_state = "store_fact"
-  target_state  = "done"
+  initial_state = "remember_architectural_decision"
+  target_state  = "memory_demo_completed"
 }
 
 adapter "criteriadb" "memory" {
-  source = "github.com/brokenbots/criteriadb"
   config {
-    db_path = ".criteria/memory.db"
+    db_path            = ".criteria/demo_memory.db"
+    embedding_endpoint = "http://localhost:11434/v1/embeddings"
+    embedding_model    = "embeddinggemma:latest"
   }
 }
 
-step "store_fact" {
+step "remember_architectural_decision" {
   target = adapter.criteriadb.memory
   input {
-    action     = "remember"
-    label      = "Auth Module Compiled"
-    summary    = "FSM graph engine compiled successfully with zero CGO errors"
-    type       = "task_done"
-    project    = "criteria-auth"
-    adapter_id = "copilot-dev-1"
+    action      = "remember"
+    label       = "Zero-CGO Persistence"
+    summary     = "CriteriaDB relies exclusively on pure-Go bbolt storage for cross-platform portability."
+    type        = "fact"
+    project     = "criteriadb-demo"
+    adapter_id  = "arch-agent"
   }
-  outcome "remembered" { next = state.recall_context }
+  outcome "remembered" { next = state.recall_semantic_context }
 }
 
-step "recall_context" {
+step "recall_semantic_context" {
   target = adapter.criteriadb.memory
   input {
     action            = "recall"
-    query_text        = "Auth Module"
-    project           = "criteria-auth"
-    caller_adapter_id = "copilot-dev-1"
+    query_text        = "pure-Go single-file storage and cross-platform portability"
+    project           = "criteriadb-demo"
+    caller_adapter_id = "reasoning-agent"
   }
-  outcome "recalled" { next = state.done }
+  outcome "recalled" { next = state.memory_demo_completed }
 }
 
-state "done" { terminal = true }
+state "memory_demo_completed" { terminal = true }
 ```
 
----
-
-## Server & CLI Flags
-
-Run the standalone gRPC server:
-
+Run with `criteria`:
 ```bash
-./bin/criteriadb \
-  --port 8080 \
-  --db-path .criteria/criteriadb.db \
-  --embedding-endpoint http://localhost:11434/v1/embeddings \
-  --embedding-model nomic-embed-text
-```
-
-| Flag | Default | Description |
-| :--- | :--- | :--- |
-| `--port` | `8080` | gRPC server port |
-| `--db-path` | `criteriadb.db` | Path to persistent bbolt database file |
-| `--embedding-endpoint` | `""` | Optional local HTTP embedding API (e.g. Ollama) |
-| `--embedding-model` | `nomic-embed-text` | Model name for local embedding API |
-
----
-
-## Developer Commands (`Makefile`)
-
-```bash
-make help          # Show all available Makefile targets
-make build         # Build all binaries (CGO_ENABLED=0)
-make test          # Run test suite
-make proto         # Regenerate Go Protobuf structs from proto/
-make lint          # Run fmt and vet checks
-make clean         # Remove compiled binaries and temporary test databases
+criteria apply examples/criteriadb_memory_demo.hcl
 ```
 
 ---
