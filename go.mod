@@ -1,6 +1,6 @@
 module github.com/brokenbots/criteriadb
 
-go 1.26.3
+go 1.26.6
 
 require (
 	github.com/brokenbots/criteria-adapter-proto v0.5.1
