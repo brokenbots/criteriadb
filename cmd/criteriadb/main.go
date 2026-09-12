@@ -2,16 +2,20 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/brokenbots/criteriadb/pkg/memory"
 	pb "github.com/brokenbots/criteriadb/pkg/pb/criteriadb/v1"
 	"github.com/brokenbots/criteriadb/pkg/server"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type grpcServer struct {
@@ -54,6 +58,12 @@ func main() {
 		runStats(os.Args[2:])
 	case "consolidate":
 		runConsolidate(os.Args[2:])
+	case "export":
+		runExport(os.Args[2:])
+	case "import":
+		runImport(os.Args[2:])
+	case "viz":
+		runViz(os.Args[2:])
 	default:
 		// Fallback to serve for backward compatibility if unknown flag
 		runServe(os.Args[1:])
@@ -68,6 +78,9 @@ func printUsage() {
 	fmt.Println("  list         List all stored memory nodes and details")
 	fmt.Println("  stats        Display summary memory statistics")
 	fmt.Println("  consolidate  Prune expired memories and consolidate event nodes")
+	fmt.Println("  export       Export memory nodes and edges to a JSON file")
+	fmt.Println("  import       Import memory nodes and edges from a JSON file")
+	fmt.Println("  viz          Launch the standalone interactive D3.js web visualizer dashboard")
 }
 
 func runServe(args []string) {
@@ -239,4 +252,132 @@ func runConsolidate(args []string) {
 	} else {
 		fmt.Println("No nodes required consolidation.")
 	}
+}
+
+func runExport(args []string) {
+	fs := flag.NewFlagSet("export", flag.ExitOnError)
+	dbPath := fs.String("db-path", "criteriadb.db", "Path to bbolt database file")
+	outputFile := fs.String("output", "criteriadb_export.json", "Output JSON backup file")
+	_ = fs.Parse(args)
+
+	engine, err := memory.NewMemoryEngine(memory.Config{StoragePath: *dbPath})
+	if err != nil {
+		log.Fatalf("Failed to open DB: %v", err)
+	}
+	defer engine.Close()
+
+	ctx := context.Background()
+	results, err := engine.Recall(ctx, &pb.QueryRequest{
+		ScopeFilter: &pb.AdapterScopeFilter{TargetAdapterIds: []string{"*"}},
+		Limit:       10000,
+	})
+	if err != nil {
+		log.Fatalf("Export query failed: %v", err)
+	}
+
+	var rawNodes []json.RawMessage
+	var rawEdges []json.RawMessage
+	seenEdges := make(map[string]bool)
+	m := protojson.MarshalOptions{UseProtoNames: true}
+
+	for _, r := range results {
+		if b, err := m.Marshal(r.Node); err == nil {
+			rawNodes = append(rawNodes, json.RawMessage(b))
+		}
+		for _, e := range r.ConnectedEdges {
+			if !seenEdges[e.GetId()] {
+				seenEdges[e.GetId()] = true
+				if eb, err := m.Marshal(e); err == nil {
+					rawEdges = append(rawEdges, json.RawMessage(eb))
+				}
+			}
+		}
+	}
+
+	exportDoc := map[string]any{
+		"nodes": rawNodes,
+		"edges": rawEdges,
+	}
+
+	data, err := json.MarshalIndent(exportDoc, "", "  ")
+	if err != nil {
+		log.Fatalf("Failed to format export JSON: %v", err)
+	}
+
+	if err := os.WriteFile(*outputFile, data, 0644); err != nil {
+		log.Fatalf("Failed to write export file: %v", err)
+	}
+
+	fmt.Printf("Successfully exported %d nodes and %d edges to %s!\n", len(rawNodes), len(rawEdges), *outputFile)
+}
+
+func runImport(args []string) {
+	fs := flag.NewFlagSet("import", flag.ExitOnError)
+	dbPath := fs.String("db-path", "criteriadb.db", "Path to bbolt database file")
+	inputFile := fs.String("input", "", "Input JSON backup file")
+	_ = fs.Parse(args)
+
+	if *inputFile == "" {
+		log.Fatalf("Error: --input parameter is required for import")
+	}
+
+	data, err := os.ReadFile(*inputFile)
+	if err != nil {
+		log.Fatalf("Failed to read input file: %v", err)
+	}
+
+	var exportDoc struct {
+		Nodes []json.RawMessage `json:"nodes"`
+		Edges []json.RawMessage `json:"edges"`
+	}
+	if err := json.Unmarshal(data, &exportDoc); err != nil {
+		log.Fatalf("Failed to parse input JSON: %v", err)
+	}
+
+	engine, err := memory.NewMemoryEngine(memory.Config{StoragePath: *dbPath})
+	if err != nil {
+		log.Fatalf("Failed to open DB: %v", err)
+	}
+	defer engine.Close()
+
+	ctx := context.Background()
+	um := protojson.UnmarshalOptions{DiscardUnknown: true}
+
+	importedNodes := 0
+	for _, rawN := range exportDoc.Nodes {
+		var node pb.MemoryNode
+		if err := um.Unmarshal(rawN, &node); err == nil {
+			_, _ = engine.Remember(ctx, &node, nil)
+			importedNodes++
+		}
+	}
+
+	fmt.Printf("Successfully imported %d memory nodes from %s into %s!\n", importedNodes, *inputFile, *dbPath)
+}
+
+func runViz(args []string) {
+	fs := flag.NewFlagSet("viz", flag.ExitOnError)
+	dbPath := fs.String("db-path", "criteriadb.db", "Path to bbolt database file")
+	port := fs.Int("port", 8081, "Web visualizer HTTP port")
+	_ = fs.Parse(args)
+
+	engine, err := memory.NewMemoryEngine(memory.Config{StoragePath: *dbPath})
+	if err != nil {
+		log.Fatalf("Failed to open DB: %v", err)
+	}
+	defer engine.Close()
+
+	webAddr := fmt.Sprintf("127.0.0.1:%d", *port)
+	go func() {
+		if err := server.StartWebServer(webAddr, engine); err != nil {
+			log.Fatalf("Web visualizer error: %v", err)
+		}
+	}()
+
+	fmt.Printf("CriteriaDB Interactive Visualizer running at http://%s\nPress Ctrl+C to exit.\n", webAddr)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	<-sigChan
+	fmt.Println("\nShutting down visualizer server...")
 }
