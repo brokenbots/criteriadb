@@ -32,7 +32,8 @@ func (a *CriteriaDBAdapter) Info(context.Context, *v2.InfoRequest) (*v2.InfoResp
 		Version:      "0.1.0",
 		Description:  "CriteriaDB Agent Memory Graph Adapter for Criteria workflows",
 		SourceUrl:    "https://github.com/brokenbots/criteriadb",
-		Capabilities: []string{"execute"},
+		Platforms:    []string{"linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64"},
+		Capabilities: []string{"execute", "multi_turn", "structured_events"},
 	}, nil
 }
 
