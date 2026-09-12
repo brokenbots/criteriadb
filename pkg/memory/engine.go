@@ -11,6 +11,7 @@ import (
 // Engine defines the core Go interface for CriteriaDB.
 type Engine interface {
 	Remember(ctx context.Context, node *pb.MemoryNode, edges []*pb.MemoryEdge) (string, error)
+	RememberEdge(ctx context.Context, edge *pb.MemoryEdge) error
 	Recall(ctx context.Context, req *pb.QueryRequest) ([]*pb.MemoryQueryResult, error)
 	Close() error
 }
@@ -102,6 +103,23 @@ func (e *MemoryEngine) Remember(ctx context.Context, node *pb.MemoryNode, edges 
 	}
 
 	return node.GetId(), nil
+}
+
+func (e *MemoryEngine) RememberEdge(ctx context.Context, edge *pb.MemoryEdge) error {
+	if edge == nil || edge.GetId() == "" {
+		return fmt.Errorf("edge cannot be nil and must have an ID")
+	}
+
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.edges = append(e.edges, edge)
+	if e.store != nil {
+		if err := e.store.SaveEdge(edge); err != nil {
+			return fmt.Errorf("failed to save edge to storage: %w", err)
+		}
+	}
+	return nil
 }
 
 func (e *MemoryEngine) Recall(ctx context.Context, req *pb.QueryRequest) ([]*pb.MemoryQueryResult, error) {

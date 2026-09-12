@@ -133,6 +133,9 @@ func (a *CriteriaDBAdapter) Execute(ctx context.Context, req *v2.ExecuteRequest,
 	case "remember_relation":
 		sourceID := inputs["source_node_id"]
 		targetID := inputs["target_node_id"]
+		if sourceID == "" || targetID == "" {
+			return fmt.Errorf("source_node_id and target_node_id are required for remember_relation")
+		}
 		relation := inputs["relation"]
 		if relation == "" {
 			relation = "INVOLVES"
@@ -159,14 +162,9 @@ func (a *CriteriaDBAdapter) Execute(ctx context.Context, req *v2.ExecuteRequest,
 			},
 		}
 
-		// Dummy node wrapper to store edge
-		dummyNode := &pb.MemoryNode{
-			Id:    sourceID,
-			Label: "Source Node",
-		}
-		_, err := eng.Remember(ctx, dummyNode, []*pb.MemoryEdge{edge})
+		err := eng.RememberEdge(ctx, edge)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to remember edge: %w", err)
 		}
 
 		ev, err := v2.NewExecuteResultEvent("connected", map[string]any{

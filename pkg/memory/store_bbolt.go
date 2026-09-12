@@ -2,8 +2,10 @@ package memory
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	pb "github.com/brokenbots/criteriadb/pkg/pb/criteriadb/v1"
 	bbolt "go.etcd.io/bbolt"
@@ -30,7 +32,11 @@ func NewBBoltStore(dbPath string) (*BBoltStore, error) {
 		_ = os.MkdirAll(dir, 0755)
 	}
 
-	db, err := bbolt.Open(dbPath, 0600, nil)
+	opts := &bbolt.Options{
+		Timeout: 3 * time.Second,
+	}
+
+	db, err := bbolt.Open(dbPath, 0600, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open bbolt db at %s: %w", dbPath, err)
 	}
@@ -66,6 +72,19 @@ func (s *BBoltStore) SaveNode(node *pb.MemoryNode) error {
 	})
 }
 
+func (s *BBoltStore) DeleteNode(id string) error {
+	if s.db == nil || id == "" {
+		return nil
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketNodes)
+		if b == nil {
+			return nil
+		}
+		return b.Delete([]byte(id))
+	})
+}
+
 func (s *BBoltStore) SaveEdge(edge *pb.MemoryEdge) error {
 	if s.db == nil || edge == nil || edge.GetId() == "" {
 		return nil
@@ -80,6 +99,19 @@ func (s *BBoltStore) SaveEdge(edge *pb.MemoryEdge) error {
 	})
 }
 
+func (s *BBoltStore) DeleteEdge(id string) error {
+	if s.db == nil || id == "" {
+		return nil
+	}
+	return s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(bucketEdges)
+		if b == nil {
+			return nil
+		}
+		return b.Delete([]byte(id))
+	})
+}
+
 func (s *BBoltStore) LoadAll() ([]*pb.MemoryNode, []*pb.MemoryEdge, error) {
 	if s.db == nil {
 		return nil, nil, nil
@@ -90,22 +122,30 @@ func (s *BBoltStore) LoadAll() ([]*pb.MemoryNode, []*pb.MemoryEdge, error) {
 
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		bNodes := tx.Bucket(bucketNodes)
-		_ = bNodes.ForEach(func(k, v []byte) error {
-			var node pb.MemoryNode
-			if err := proto.Unmarshal(v, &node); err == nil {
-				nodes = append(nodes, &node)
-			}
-			return nil
-		})
+		if bNodes != nil {
+			_ = bNodes.ForEach(func(k, v []byte) error {
+				var node pb.MemoryNode
+				if err := proto.Unmarshal(v, &node); err == nil {
+					nodes = append(nodes, &node)
+				} else {
+					log.Printf("[BBoltStore] Warning: failed to unmarshal node %s: %v", string(k), err)
+				}
+				return nil
+			})
+		}
 
 		bEdges := tx.Bucket(bucketEdges)
-		_ = bEdges.ForEach(func(k, v []byte) error {
-			var edge pb.MemoryEdge
-			if err := proto.Unmarshal(v, &edge); err == nil {
-				edges = append(edges, &edge)
-			}
-			return nil
-		})
+		if bEdges != nil {
+			_ = bEdges.ForEach(func(k, v []byte) error {
+				var edge pb.MemoryEdge
+				if err := proto.Unmarshal(v, &edge); err == nil {
+					edges = append(edges, &edge)
+				} else {
+					log.Printf("[BBoltStore] Warning: failed to unmarshal edge %s: %v", string(k), err)
+				}
+				return nil
+			})
+		}
 		return nil
 	})
 
