@@ -17,15 +17,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: bufbuild/buf-setup-action@v1
+
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Verify Protobuf Generation & Drift
+      - name: Install Protoc Plugins
         run: |
-          make proto
-          git diff --exit-code || (echo "Protobuf files out of sync. Run 'make proto'" && exit 1)
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+
+      - name: Verify Protobuf Generation & Drift
+        run: make proto-check-drift
 
       - name: Format Check
         run: make fmt
@@ -45,7 +50,7 @@ jobs:
           cache: true
 
       - name: Run Test Suite (CGO_ENABLED=0)
-        run: CGO_ENABLED=0 go test -race -v ./...
+        run: make test
 
   security:
     name: Security Vulnerability Scan
@@ -53,7 +58,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run OSV-Scanner
-        uses: google/osv-scanner-action@v1.9.0
+      - uses: actions/setup-go@v5
         with:
-          scan-args: '--config=osv-scanner.toml .'
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run OSV-Scanner
+        run: make vuln-scan

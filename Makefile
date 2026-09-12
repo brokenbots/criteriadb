@@ -30,6 +30,15 @@ test-cover: ## Run test suite with coverage output (cover.out)
 proto: ## Generate Go protobuf structs and gRPC services from proto/
 	buf generate proto
 
+proto-check-drift: proto ## Verify protobuf files are up to date
+	git diff --exit-code -- proto/ pkg/pb/ || (echo "Protobuf files out of sync. Run 'make proto'" && exit 1)
+
+
+vuln-scan: ## Scan dependencies for security vulnerabilities using osv-scanner
+	go run github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.3.8 scan source --config=osv-scanner.toml .
+
+
+
 tidy: ## Clean and sync go.mod dependencies
 	go mod tidy
 
