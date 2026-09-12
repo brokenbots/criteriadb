@@ -1,0 +1,4 @@
+# osv-scanner configuration for CriteriaDB
+# Mandate: no shipping code with known security vulnerabilities.
+
+# Default posture: NO ignores. A clean tree carries an empty file.

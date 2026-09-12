@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package criteriadb.v1;
+
+option go_package = "github.com/brokenbots/criteriadb/pkg/pb/criteriadb/v1;criteriadbv1";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+enum Tense {
+  TENSE_UNSPECIFIED = 0;
+  TENSE_PAST = 1;
+  TENSE_PRESENT = 2;
+  TENSE_FUTURE = 3;
+  TENSE_PLANNED = 4;
+  TENSE_CONDITIONAL = 5;
+}
+
+enum VisibilityScope {
+  VISIBILITY_PRIVATE = 0;   // Visible only to creator adapter
+  VISIBILITY_WORKFLOW = 1;  // Visible to all adapters within the same workflow run
+  VISIBILITY_GLOBAL = 2;    // Visible across all workflow runs & adapters
+}
+
+message TemporalInfo {
+  google.protobuf.Timestamp timestamp = 1;
+  google.protobuf.Timestamp valid_from = 2;
+  google.protobuf.Timestamp valid_to = 3;
+  google.protobuf.Timestamp due_date = 4;
+  Tense tense = 5;
+}
+
+message DigitalLocation {
+  string machine = 1;
+  string repository = 2;
+  string project = 3;
+  string folder_path = 4;
+  string file_path = 5;
+  string service_url = 6;
+}
+
+message PhysicalLocation {
+  string venue = 1;
+  string address = 2;
+  double latitude = 3;
+  double longitude = 4;
+}
+
+message AgentScope {
+  string creator_adapter_id = 1;   // e.g. "copilot-dev-1", "shell-runner"
+  string creator_adapter_type = 2; // e.g. "copilot", "shell", "claude", "mcp"
+  string creator_agent_id = 3;     // e.g. "agent-alpha"
+  VisibilityScope visibility = 4;
+}
+
+message MemoryNode {
+  string id = 1;
+  string label = 2;
+  string type = 3; // e.g. "event", "fact", "person", "task", "artifact"
+  string summary = 4;
+  
+  // Optional: Packed float32 vector embedding bytes or empty for Zero-LLM mode
+  bytes packed_embedding = 5; 
+  int32 vector_dimension = 6;
+  
+  TemporalInfo temporal = 7;
+  DigitalLocation digital_location = 8;
+  PhysicalLocation physical_location = 9;
+  AgentScope agent_scope = 10;
+  google.protobuf.Struct properties = 11;
+}
+
+message MemoryEdge {
+  string id = 1;
+  string source_id = 2;
+  string target_id = 3;
+  string relation = 4; // e.g. "INVOLVES", "DEPENDS_ON", "LOCATED_AT"
+  double weight = 5;
+  TemporalInfo temporal = 6;
+  AgentScope agent_scope = 7;
+  google.protobuf.Struct properties = 8;
+}
+
+// Scope Filter for Queries
+message AdapterScopeFilter {
+  string caller_adapter_id = 1;           // Identity of the querying adapter
+  repeated string target_adapter_ids = 2; // List of adapter IDs to query, or ["*"] for all
+  bool include_workflow_shared = 3;       // Include memories marked VISIBILITY_WORKFLOW
+}
+
+// Temporal Filter for Queries
+message TemporalQuery {
+  google.protobuf.Timestamp valid_at = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  Tense tense_filter = 4;
+}
+
+// Digital & Physical Location Filter
+message LocationQuery {
+  string match_project = 1;
+  string match_folder_prefix = 2;
+  string match_machine = 3;
+  string match_venue = 4;
+}
+
+// Fact Filter for Graph Traversal
+message FactQuery {
+  repeated string relation_types = 1;
+  int32 max_hops = 2;
+  string target_label = 3;
+}
+
+// Multi-Modal Query Request
+message QueryRequest {
+  string query_text = 1;
+  bytes packed_query_embedding = 2; // Optional float32 vector
+  
+  AdapterScopeFilter scope_filter = 3;
+  TemporalQuery temporal_filter = 4;
+  LocationQuery location_filter = 5;
+  FactQuery fact_filter = 6;
+
+  int32 limit = 7;
+  bool disable_vector_search = 8;
+}
+
+message MemoryQueryResult {
+  MemoryNode node = 1;
+  repeated MemoryEdge connected_edges = 2;
+  double score = 3;
+  double lexical_score = 4;
+  double vector_score = 5;
+  double temporal_score = 6;
+  double location_score = 7;
+}
+
+message RememberRequest {
+  MemoryNode node = 1;
+  repeated MemoryEdge edges = 2;
+}
+
+message RememberResponse {
+  string node_id = 1;
+  bool success = 2;
+}
+
+message QueryResponse {
+  repeated MemoryQueryResult results = 1;
+}
+
+service MemoryService {
+  rpc Remember(RememberRequest) returns (RememberResponse);
+  rpc Recall(QueryRequest) returns (QueryResponse);
+}

@@ -1,0 +1,29 @@
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    - gosimple
+    - typecheck
+    - bodyclose
+    - nilerr
+    - gofmt
+    - goimports
+    - unconvert
+    - unparam
+    - dupword
+
+linters-settings:
+  govet:
+    enable-all: true
+
+issues:
+  exclude-dirs:
+    - pkg/pb

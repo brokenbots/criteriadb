@@ -1,0 +1,15 @@
+# Binaries & build artifacts
+bin/
+artifact/
+
+# Database files
+*.db
+.criteria/
+
+# Coverage
+cover.out
+
+# IDEs & System
+.DS_Store
+.idea/
+.vscode/

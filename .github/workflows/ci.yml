@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint & Static Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Verify Protobuf Generation & Drift
+        run: |
+          make proto
+          git diff --exit-code || (echo "Protobuf files out of sync. Run 'make proto'" && exit 1)
+
+      - name: Format Check
+        run: make fmt
+
+      - name: Vet Analysis
+        run: make vet
+
+  unit-tests:
+    name: Unit & Integration Tests (Zero CGO)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run Test Suite (CGO_ENABLED=0)
+        run: CGO_ENABLED=0 go test -race -v ./...
+
+  security:
+    name: Security Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run OSV-Scanner
+        uses: google/osv-scanner-action@v1.9.0
+        with:
+          scan-args: '--config=osv-scanner.toml .'
