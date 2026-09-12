@@ -22,6 +22,9 @@ func (e *MemoryEngine) PruneExpired(ctx context.Context) (int, error) {
 			vt := n.GetTemporal().GetValidTo().AsTime()
 			if vt.Before(now) {
 				delete(e.nodes, id)
+				if e.store != nil {
+					_ = e.store.DeleteNode(id)
+				}
 				prunedCount++
 			}
 		}
@@ -82,6 +85,9 @@ func (e *MemoryEngine) Consolidate(ctx context.Context, project string, nodeType
 
 	for _, id := range matchingIDs {
 		delete(e.nodes, id)
+		if e.store != nil {
+			_ = e.store.DeleteNode(id)
+		}
 	}
 
 	return consNode, len(matchingIDs), nil
