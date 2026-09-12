@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           for platform in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os="${platform%/*}"; arch="${platform#*/}"
-            outdir="artifact/bin/${os}/${arch}"
+            outdir="artifact/${os}/${arch}"
             mkdir -p "$outdir"
             echo "building ${platform}"
             CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
