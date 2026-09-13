@@ -70,6 +70,9 @@ func (s *BBoltStore) SaveNode(node *pb.MemoryNode) error {
 	}
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketNodes)
+		if b == nil {
+			return fmt.Errorf("bucket nodes does not exist")
+		}
 		return b.Put([]byte(node.GetId()), data)
 	})
 }
@@ -97,6 +100,9 @@ func (s *BBoltStore) SaveEdge(edge *pb.MemoryEdge) error {
 	}
 	return s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(bucketEdges)
+		if b == nil {
+			return fmt.Errorf("bucket edges does not exist")
+		}
 		return b.Put([]byte(edge.GetId()), data)
 	})
 }

@@ -49,7 +49,15 @@ func CosineSimilarity(a, b []float32) float64 {
 		return 0.0
 	}
 
-	sim := dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+	denom := math.Sqrt(normA) * math.Sqrt(normB)
+	if denom == 0.0 || math.IsNaN(denom) {
+		return 0.0
+	}
+
+	sim := dotProduct / denom
+	if math.IsNaN(sim) || math.IsInf(sim, 0) {
+		return 0.0
+	}
 	// Clamp to [0.0, 1.0] for similarity score normalization
 	if sim < 0.0 {
 		return 0.0

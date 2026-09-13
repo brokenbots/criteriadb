@@ -98,7 +98,38 @@ func (a *CriteriaDBAdapter) Execute(ctx context.Context, req *v2.ExecuteRequest,
 		folderPath := inputs["folder_path"]
 		adapterID := inputs["adapter_id"]
 
-		nodeID := fmt.Sprintf("mem-%d", memory.NowTimestamp().UnixNano())
+		nodeID := inputs["node_id"]
+		if nodeID == "" {
+			nodeID = inputs["id"]
+		}
+		if nodeID == "" {
+			nodeID = fmt.Sprintf("mem-%d", memory.NowTimestamp().UnixNano())
+		}
+
+		tense := pb.Tense_TENSE_PAST
+		if tStr := inputs["tense"]; tStr != "" {
+			switch strings.ToUpper(strings.TrimSpace(tStr)) {
+			case "PRESENT", "TENSE_PRESENT":
+				tense = pb.Tense_TENSE_PRESENT
+			case "FUTURE", "TENSE_FUTURE":
+				tense = pb.Tense_TENSE_FUTURE
+			case "PLANNED", "TENSE_PLANNED":
+				tense = pb.Tense_TENSE_PLANNED
+			case "CONDITIONAL", "TENSE_CONDITIONAL":
+				tense = pb.Tense_TENSE_CONDITIONAL
+			}
+		}
+
+		visibility := pb.VisibilityScope_VISIBILITY_WORKFLOW
+		if vStr := inputs["visibility"]; vStr != "" {
+			switch strings.ToUpper(strings.TrimSpace(vStr)) {
+			case "PRIVATE", "VISIBILITY_PRIVATE":
+				visibility = pb.VisibilityScope_VISIBILITY_PRIVATE
+			case "GLOBAL", "VISIBILITY_GLOBAL":
+				visibility = pb.VisibilityScope_VISIBILITY_GLOBAL
+			}
+		}
+
 		node := &pb.MemoryNode{
 			Id:      nodeID,
 			Label:   label,
@@ -107,7 +138,7 @@ func (a *CriteriaDBAdapter) Execute(ctx context.Context, req *v2.ExecuteRequest,
 			Temporal: &pb.TemporalInfo{
 				Timestamp: timestamppb.New(memory.NowTimestamp()),
 				ValidFrom: timestamppb.New(memory.NowTimestamp()),
-				Tense:     pb.Tense_TENSE_PAST,
+				Tense:     tense,
 			},
 			DigitalLocation: &pb.DigitalLocation{
 				Project:    project,
@@ -115,7 +146,7 @@ func (a *CriteriaDBAdapter) Execute(ctx context.Context, req *v2.ExecuteRequest,
 			},
 			AgentScope: &pb.AgentScope{
 				CreatorAdapterId: adapterID,
-				Visibility:       pb.VisibilityScope_VISIBILITY_WORKFLOW,
+				Visibility:       visibility,
 			},
 		}
 
@@ -152,7 +183,13 @@ func (a *CriteriaDBAdapter) Execute(ctx context.Context, req *v2.ExecuteRequest,
 			}
 		}
 
-		edgeID := fmt.Sprintf("edge-%d", memory.NowTimestamp().UnixNano())
+		edgeID := inputs["edge_id"]
+		if edgeID == "" {
+			edgeID = inputs["id"]
+		}
+		if edgeID == "" {
+			edgeID = fmt.Sprintf("edge-%d", memory.NowTimestamp().UnixNano())
+		}
 		edge := &pb.MemoryEdge{
 			Id:       edgeID,
 			SourceId: sourceID,
@@ -203,11 +240,18 @@ func (a *CriteriaDBAdapter) Execute(ctx context.Context, req *v2.ExecuteRequest,
 			}
 		}
 
+		limit := int32(10)
+		if limStr := inputs["limit"]; limStr != "" {
+			if l, err := strconv.Atoi(limStr); err == nil && l > 0 {
+				limit = int32(l)
+			}
+		}
+
 		results, err := eng.Recall(ctx, &pb.QueryRequest{
 			QueryText:      queryText,
 			ScopeFilter:    scopeFilter,
 			LocationFilter: locFilter,
-			Limit:          10,
+			Limit:          limit,
 		})
 		if err != nil {
 			return err
@@ -242,14 +286,28 @@ func (a *CriteriaDBAdapter) Execute(ctx context.Context, req *v2.ExecuteRequest,
 			relTypes = strings.Split(relationStr, ",")
 		}
 
+		limit := int32(10)
+		if limStr := inputs["limit"]; limStr != "" {
+			if l, err := strconv.Atoi(limStr); err == nil && l > 0 {
+				limit = int32(l)
+			}
+		}
+
+		maxHops := int32(2)
+		if hStr := inputs["max_hops"]; hStr != "" {
+			if h, err := strconv.Atoi(hStr); err == nil && h > 0 {
+				maxHops = int32(h)
+			}
+		}
+
 		results, err := eng.Recall(ctx, &pb.QueryRequest{
 			QueryText: queryText,
 			FactFilter: &pb.FactQuery{
 				RelationTypes: relTypes,
 				TargetLabel:   targetLabel,
-				MaxHops:       2,
+				MaxHops:       maxHops,
 			},
-			Limit: 10,
+			Limit: limit,
 		})
 		if err != nil {
 			return err

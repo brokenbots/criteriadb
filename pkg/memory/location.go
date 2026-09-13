@@ -15,7 +15,6 @@ func EvaluateLocation(node *pb.MemoryNode, query *pb.LocationQuery) float64 {
 	dig := node.GetDigitalLocation()
 	phys := node.GetPhysicalLocation()
 
-	score := 1.0
 	matchesCount := 0
 	totalFilters := 0
 
@@ -51,6 +50,9 @@ func EvaluateLocation(node *pb.MemoryNode, query *pb.LocationQuery) float64 {
 		return 1.0
 	}
 
-	score = float64(matchesCount) / float64(totalFilters)
-	return score
+	if matchesCount < totalFilters {
+		return 0.0
+	}
+
+	return 1.0
 }

@@ -32,11 +32,16 @@ jobs:
       - name: Verify Protobuf Generation & Drift
         run: make proto-check-drift
 
-      - name: Format Check
-        run: make fmt
+      - name: Formatting & Drift Check
+        run: |
+          make fmt
+          git diff --exit-code || (echo "Code has unformatted files. Run 'make fmt'" && exit 1)
 
-      - name: Vet Analysis
-        run: make vet
+      - name: Lint & Static Analysis
+        run: make lint
+
+      - name: Build Verification (Zero CGO)
+        run: make build
 
   unit-tests:
     name: Unit & Integration Tests (Zero CGO)
@@ -51,6 +56,9 @@ jobs:
 
       - name: Run Test Suite (CGO_ENABLED=0)
         run: make test
+
+      - name: Run Race Detector
+        run: go test -race -v ./test/...
 
   security:
     name: Security Vulnerability Scan

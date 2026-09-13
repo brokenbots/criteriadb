@@ -46,6 +46,8 @@ func main() {
 	}
 
 	scanner := bufio.NewScanner(reader)
+	scanBuf := make([]byte, 64*1024)
+	scanner.Buffer(scanBuf, 10*1024*1024) // Support large event payloads up to 10MB
 	count := 0
 
 	for scanner.Scan() {
@@ -56,7 +58,7 @@ func main() {
 
 		nodeID, err := ingester.IngestNDJSONEvent(ctx, line)
 		if err != nil {
-			// Skip non-event lines silently or log warning
+			log.Printf("[Ingest Warning] skipping invalid event line: %v", err)
 			continue
 		}
 

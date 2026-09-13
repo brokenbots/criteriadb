@@ -154,18 +154,20 @@ func BenchmarkEngine_Consolidate(b *testing.B) {
 	defer cleanup()
 
 	ctx := context.Background()
-	// Pre-populate 500 nodes with expired validity windows
-	now := time.Now()
-	for i := 0; i < 500; i++ {
-		nodeID := fmt.Sprintf("expired-%d", i)
-		node := generateRandomNode(nodeID)
-		node.Temporal.ValidTo = timestamppb.New(now.Add(-10 * time.Minute))
-		_, _ = eng.Remember(ctx, node, nil)
-	}
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		now := time.Now()
+		for j := 0; j < 50; j++ {
+			nodeID := fmt.Sprintf("bench-cons-%d-%d", i, j)
+			node := generateRandomNode(nodeID)
+			node.Temporal.ValidTo = timestamppb.New(now.Add(-10 * time.Minute))
+			_, _ = eng.Remember(ctx, node, nil)
+		}
+		b.StartTimer()
+
 		_, _, err := eng.Consolidate(ctx, "criteriadb-benchmarks", "fact")
 		if err != nil {
 			b.Fatalf("Consolidate failed: %v", err)

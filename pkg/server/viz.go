@@ -52,6 +52,7 @@ func StartWebServer(addr string, engine *memory.MemoryEngine) error {
 		var nodes []GraphNode
 		var links []GraphLink
 		seenNodes := make(map[string]bool)
+		seenLinks := make(map[string]bool)
 
 		for _, res := range results {
 			n := res.Node
@@ -69,12 +70,19 @@ func StartWebServer(addr string, engine *memory.MemoryEngine) error {
 			}
 
 			for _, edge := range res.ConnectedEdges {
-				links = append(links, GraphLink{
-					Source:   edge.GetSourceId(),
-					Target:   edge.GetTargetId(),
-					Relation: edge.GetRelation(),
-					Weight:   edge.GetWeight(),
-				})
+				edgeKey := edge.GetId()
+				if edgeKey == "" {
+					edgeKey = fmt.Sprintf("%s->%s:%s", edge.GetSourceId(), edge.GetTargetId(), edge.GetRelation())
+				}
+				if !seenLinks[edgeKey] {
+					seenLinks[edgeKey] = true
+					links = append(links, GraphLink{
+						Source:   edge.GetSourceId(),
+						Target:   edge.GetTargetId(),
+						Relation: edge.GetRelation(),
+						Weight:   edge.GetWeight(),
+					})
+				}
 			}
 		}
 
@@ -435,19 +443,27 @@ const htmlDashboard = `<!DOCTYPE html>
       document.getElementById("det-tense-badge").innerText = d.tense;
       document.getElementById("det-type-badge").innerText = d.type;
 
-      // Find connected relations
+      // Find connected relations safely without innerHTML XSS injection
       const rels = allLinks.filter(l => (l.source.id === d.id || l.source === d.id || l.target.id === d.id || l.target === d.id));
-      let relHTML = "";
+      const edgesContainer = document.getElementById("det-edges");
+      edgesContainer.textContent = "";
       if (rels.length === 0) {
-        relHTML = "<em>No edges connected</em>";
+        const em = document.createElement("em");
+        em.textContent = "No edges connected";
+        edgesContainer.appendChild(em);
       } else {
         rels.forEach(l => {
-        const src = l.source.id || l.source;
-        const tgt = l.target.id || l.target;
-        relHTML += "<div>&bull; <strong>" + l.relation + "</strong> (" + src + " &rarr; " + tgt + ")</div>";
-      });
+          const src = l.source.id || l.source;
+          const tgt = l.target.id || l.target;
+          const row = document.createElement("div");
+          row.textContent = "• ";
+          const strong = document.createElement("strong");
+          strong.textContent = l.relation;
+          row.appendChild(strong);
+          row.appendChild(document.createTextNode(" (" + src + " → " + tgt + ")"));
+          edgesContainer.appendChild(row);
+        });
       }
-      document.getElementById("det-edges").innerHTML = relHTML;
     }
 
     window.hideDetails = function() {

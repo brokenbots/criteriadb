@@ -3,9 +3,11 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	pb "github.com/brokenbots/criteriadb/pkg/pb/criteriadb/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 // Engine defines the core Go interface for CriteriaDB.
@@ -28,7 +30,7 @@ type Config struct {
 type MemoryEngine struct {
 	mu          sync.RWMutex
 	nodes       map[string]*pb.MemoryNode
-	edges       []*pb.MemoryEdge
+	edges       map[string]*pb.MemoryEdge
 	store       Store
 	embedder    *Embedder
 	queryEngine *QueryEngine
@@ -52,7 +54,7 @@ func NewMemoryEngine(cfg Config) (*MemoryEngine, error) {
 	}
 
 	nodesMap := make(map[string]*pb.MemoryNode)
-	var edgesSlice []*pb.MemoryEdge
+	edgesMap := make(map[string]*pb.MemoryEdge)
 
 	if store != nil {
 		loadedNodes, loadedEdges, err := store.LoadAll()
@@ -62,7 +64,9 @@ func NewMemoryEngine(cfg Config) (*MemoryEngine, error) {
 		for _, n := range loadedNodes {
 			nodesMap[n.GetId()] = n
 		}
-		edgesSlice = loadedEdges
+		for _, e := range loadedEdges {
+			edgesMap[e.GetId()] = e
+		}
 	}
 
 	var embedder *Embedder
@@ -72,7 +76,7 @@ func NewMemoryEngine(cfg Config) (*MemoryEngine, error) {
 
 	return &MemoryEngine{
 		nodes:       nodesMap,
-		edges:       edgesSlice,
+		edges:       edgesMap,
 		store:       store,
 		embedder:    embedder,
 		queryEngine: NewQueryEngine(),
@@ -81,8 +85,8 @@ func NewMemoryEngine(cfg Config) (*MemoryEngine, error) {
 }
 
 func (e *MemoryEngine) Remember(ctx context.Context, node *pb.MemoryNode, edges []*pb.MemoryEdge) (string, error) {
-	if node == nil || node.GetId() == "" {
-		return "", fmt.Errorf("node cannot be nil and must have an ID")
+	if node == nil || strings.TrimSpace(node.GetId()) == "" {
+		return "", fmt.Errorf("node cannot be nil and must have a valid ID")
 	}
 
 	// Auto-generate vector embedding via local HTTP endpoint if text is present but vector is empty
@@ -95,42 +99,56 @@ func (e *MemoryEngine) Remember(ctx context.Context, node *pb.MemoryNode, edges 
 		}
 	}
 
+	clonedNode := proto.Clone(node).(*pb.MemoryNode)
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.nodes[node.GetId()] = node
 	if e.store != nil {
-		if err := e.store.SaveNode(node); err != nil {
+		if err := e.store.SaveNode(clonedNode); err != nil {
 			return "", fmt.Errorf("failed to save node to storage: %w", err)
 		}
 	}
+	e.nodes[clonedNode.GetId()] = clonedNode
 
 	for _, edge := range edges {
-		if edge.GetId() != "" {
-			e.edges = append(e.edges, edge)
-			if e.store != nil {
-				_ = e.store.SaveEdge(edge)
+		if edge == nil || strings.TrimSpace(edge.GetId()) == "" {
+			continue
+		}
+		if strings.TrimSpace(edge.GetSourceId()) == "" || strings.TrimSpace(edge.GetTargetId()) == "" {
+			return "", fmt.Errorf("edge %s must specify both source_id and target_id", edge.GetId())
+		}
+		clonedEdge := proto.Clone(edge).(*pb.MemoryEdge)
+		if e.store != nil {
+			if err := e.store.SaveEdge(clonedEdge); err != nil {
+				return "", fmt.Errorf("failed to save edge %s to storage: %w", edge.GetId(), err)
 			}
 		}
+		e.edges[clonedEdge.GetId()] = clonedEdge
 	}
 
-	return node.GetId(), nil
+	return clonedNode.GetId(), nil
 }
 
 func (e *MemoryEngine) RememberEdge(ctx context.Context, edge *pb.MemoryEdge) error {
-	if edge == nil || edge.GetId() == "" {
-		return fmt.Errorf("edge cannot be nil and must have an ID")
+	if edge == nil || strings.TrimSpace(edge.GetId()) == "" {
+		return fmt.Errorf("edge cannot be nil and must have a valid ID")
 	}
+	if strings.TrimSpace(edge.GetSourceId()) == "" || strings.TrimSpace(edge.GetTargetId()) == "" {
+		return fmt.Errorf("edge must specify both source_id and target_id")
+	}
+
+	clonedEdge := proto.Clone(edge).(*pb.MemoryEdge)
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.edges = append(e.edges, edge)
 	if e.store != nil {
-		if err := e.store.SaveEdge(edge); err != nil {
+		if err := e.store.SaveEdge(clonedEdge); err != nil {
 			return fmt.Errorf("failed to save edge to storage: %w", err)
 		}
 	}
+	e.edges[clonedEdge.GetId()] = clonedEdge
 	return nil
 }
 

@@ -16,6 +16,7 @@ func (e *MemoryEngine) PruneExpired(ctx context.Context) (int, error) {
 
 	now := time.Now()
 	prunedCount := 0
+	deletedIDs := make(map[string]struct{})
 
 	for id, n := range e.nodes {
 		if n.GetTemporal() != nil && n.GetTemporal().GetValidTo() != nil {
@@ -25,11 +26,13 @@ func (e *MemoryEngine) PruneExpired(ctx context.Context) (int, error) {
 				if e.store != nil {
 					_ = e.store.DeleteNode(id)
 				}
+				deletedIDs[id] = struct{}{}
 				prunedCount++
 			}
 		}
 	}
 
+	e.removeConnectedEdgesLocked(deletedIDs)
 	return prunedCount, nil
 }
 
@@ -39,7 +42,6 @@ func (e *MemoryEngine) Consolidate(ctx context.Context, project string, nodeType
 	defer e.mu.Unlock()
 
 	var matchingIDs []string
-	var labels []string
 
 	for id, n := range e.nodes {
 		pMatch := project == "" || n.GetDigitalLocation().GetProject() == project
@@ -47,7 +49,6 @@ func (e *MemoryEngine) Consolidate(ctx context.Context, project string, nodeType
 
 		if pMatch && tMatch && n.GetType() != "consolidated_fact" {
 			matchingIDs = append(matchingIDs, id)
-			labels = append(labels, n.GetLabel())
 		}
 	}
 
@@ -83,14 +84,34 @@ func (e *MemoryEngine) Consolidate(ctx context.Context, project string, nodeType
 		_ = e.store.SaveNode(consNode)
 	}
 
+	deletedIDs := make(map[string]struct{})
 	for _, id := range matchingIDs {
 		delete(e.nodes, id)
 		if e.store != nil {
 			_ = e.store.DeleteNode(id)
 		}
+		deletedIDs[id] = struct{}{}
 	}
+	e.removeConnectedEdgesLocked(deletedIDs)
 
 	return consNode, len(matchingIDs), nil
+}
+
+// removeConnectedEdgesLocked deletes any edges touching the deleted nodes. Must be called with e.mu held.
+func (e *MemoryEngine) removeConnectedEdgesLocked(deletedIDs map[string]struct{}) {
+	if len(deletedIDs) == 0 {
+		return
+	}
+	for id, edge := range e.edges {
+		_, srcDel := deletedIDs[edge.GetSourceId()]
+		_, tgtDel := deletedIDs[edge.GetTargetId()]
+		if srcDel || tgtDel {
+			delete(e.edges, id)
+			if e.store != nil {
+				_ = e.store.DeleteEdge(edge.GetId())
+			}
+		}
+	}
 }
 
 // GetStats returns summary statistics for the memory engine.
