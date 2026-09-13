@@ -18,27 +18,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-type grpcServer struct {
-	pb.UnimplementedMemoryServiceServer
-	engine *memory.MemoryEngine
-}
-
-func (s *grpcServer) Remember(ctx context.Context, req *pb.RememberRequest) (*pb.RememberResponse, error) {
-	nodeID, err := s.engine.Remember(ctx, req.GetNode(), req.GetEdges())
-	if err != nil {
-		return &pb.RememberResponse{Success: false}, err
-	}
-	return &pb.RememberResponse{NodeId: nodeID, Success: true}, nil
-}
-
-func (s *grpcServer) Recall(ctx context.Context, req *pb.QueryRequest) (*pb.QueryResponse, error) {
-	results, err := s.engine.Recall(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-	return &pb.QueryResponse{Results: results}, nil
-}
-
 func main() {
 	if len(os.Args) < 2 {
 		printUsage()
@@ -118,10 +97,18 @@ func runServe(args []string) {
 	}
 
 	gServer := grpc.NewServer()
-	pb.RegisterMemoryServiceServer(gServer, &grpcServer{engine: engine})
+	server.RegisterGRPCServer(gServer, engine)
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		log.Println("Shutting down CriteriaDB gRPC server...")
+		gServer.GracefulStop()
+	}()
 
 	log.Printf("CriteriaDB gRPC server listening on :%d", *port)
-	if err := gServer.Serve(lis); err != nil {
+	if err := gServer.Serve(lis); err != nil && err != grpc.ErrServerStopped {
 		log.Fatalf("Failed to serve: %v", err)
 	}
 }
@@ -227,7 +214,12 @@ func runConsolidate(args []string) {
 	dbPath := fs.String("db-path", "criteriadb.db", "Path to bbolt database file")
 	project := fs.String("project", "", "Project to consolidate")
 	nodeType := fs.String("type", "", "Node type to consolidate")
+	all := fs.Bool("all", false, "Force consolidation across all projects and types (warning: destructive)")
 	_ = fs.Parse(args)
+
+	if *project == "" && *nodeType == "" && !*all {
+		log.Fatalf("Error: must specify --project, --type, or --all to consolidate. Refusing to consolidate entire database without --all.")
+	}
 
 	engine, err := memory.NewMemoryEngine(memory.Config{StoragePath: *dbPath})
 	if err != nil {
@@ -352,7 +344,16 @@ func runImport(args []string) {
 		}
 	}
 
-	fmt.Printf("Successfully imported %d memory nodes from %s into %s!\n", importedNodes, *inputFile, *dbPath)
+	importedEdges := 0
+	for _, rawE := range exportDoc.Edges {
+		var edge pb.MemoryEdge
+		if err := um.Unmarshal(rawE, &edge); err == nil {
+			_ = engine.RememberEdge(ctx, &edge)
+			importedEdges++
+		}
+	}
+
+	fmt.Printf("Successfully imported %d memory nodes and %d edges from %s into %s!\n", importedNodes, importedEdges, *inputFile, *dbPath)
 }
 
 func runViz(args []string) {
