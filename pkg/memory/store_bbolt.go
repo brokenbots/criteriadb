@@ -22,6 +22,8 @@ type BBoltStore struct {
 	db *bbolt.DB
 }
 
+var _ Store = (*BBoltStore)(nil)
+
 func NewBBoltStore(dbPath string) (*BBoltStore, error) {
 	if dbPath == "" {
 		return &BBoltStore{db: nil}, nil
