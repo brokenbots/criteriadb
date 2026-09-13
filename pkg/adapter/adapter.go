@@ -49,11 +49,15 @@ func (a *CriteriaDBAdapter) OpenSession(_ context.Context, req *v2.OpenSessionRe
 		}
 		embedEndpoint := cfg["embedding_endpoint"]
 		embedModel := cfg["embedding_model"]
+		storageBackend := cfg["storage_backend"]
+		postgresConn := cfg["postgres_conn_string"]
 
 		eng, err := memory.NewMemoryEngine(memory.Config{
-			StoragePath:       dbPath,
-			EmbeddingEndpoint: embedEndpoint,
-			EmbeddingModel:    embedModel,
+			StorageBackend:     storageBackend,
+			StoragePath:        dbPath,
+			PostgresConnString: postgresConn,
+			EmbeddingEndpoint:  embedEndpoint,
+			EmbeddingModel:     embedModel,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to open CriteriaDB memory engine: %w", err)

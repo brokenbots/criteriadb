@@ -17,7 +17,9 @@ type Engine interface {
 }
 
 type Config struct {
+	StorageBackend        string // "bbolt" (default) or "postgres"
 	StoragePath           string // Path to bbolt database file
+	PostgresConnString    string // Connection string for PostgreSQL / CockroachDB
 	EmbeddingEndpoint     string // e.g. "http://localhost:11434/v1/embeddings"
 	EmbeddingModel        string // e.g. "nomic-embed-text"
 	EnableZeroLLMFallback bool   // Fallback to lexical matching if no vector or embedder
@@ -27,16 +29,26 @@ type MemoryEngine struct {
 	mu          sync.RWMutex
 	nodes       map[string]*pb.MemoryNode
 	edges       []*pb.MemoryEdge
-	store       *BBoltStore
+	store       Store
 	embedder    *Embedder
 	queryEngine *QueryEngine
 	cfg         Config
 }
 
 func NewMemoryEngine(cfg Config) (*MemoryEngine, error) {
-	store, err := NewBBoltStore(cfg.StoragePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to init bbolt store: %w", err)
+	var store Store
+	var err error
+
+	if cfg.PostgresConnString != "" || cfg.StorageBackend == "postgres" {
+		store, err = NewPostgresStore(cfg.PostgresConnString)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init postgres store: %w", err)
+		}
+	} else {
+		store, err = NewBBoltStore(cfg.StoragePath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to init bbolt store: %w", err)
+		}
 	}
 
 	nodesMap := make(map[string]*pb.MemoryNode)
