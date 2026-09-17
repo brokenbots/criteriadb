@@ -213,3 +213,80 @@ func TestRememberRelationWithoutOverwritingNode(t *testing.T) {
 		t.Fatalf("Source node src-100 not found")
 	}
 }
+
+func TestAdapterSessionLifecycle(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "lifecycle.db")
+
+	ad := adapter.NewCriteriaDBAdapter(nil)
+
+	// Test Log method (no-op)
+	if err := ad.Log(ctx, &v2.LogRequest{}, nil); err != nil {
+		t.Fatalf("Log returned error: %v", err)
+	}
+
+	// Test OpenSession
+	openResp, err := ad.OpenSession(ctx, &v2.OpenSessionRequest{
+		Config: map[string]string{
+			"db_path": dbPath,
+		},
+	})
+	if err != nil || openResp == nil {
+		t.Fatalf("OpenSession failed: %v", err)
+	}
+
+	// Execute Remember within open session
+	sender := &mockSender{}
+	err = ad.Execute(ctx, &v2.ExecuteRequest{
+		Input: map[string]string{
+			"action":  "remember",
+			"label":   "Session Node",
+			"summary": "Created inside dynamically opened session",
+		},
+	}, sender)
+	if err != nil {
+		t.Fatalf("Execute inside session failed: %v", err)
+	}
+
+	// Test CloseSession
+	closeResp, err := ad.CloseSession(ctx, &v2.CloseSessionRequest{})
+	if err != nil || closeResp == nil {
+		t.Fatalf("CloseSession failed: %v", err)
+	}
+}
+
+func TestBBoltStore_DeleteEdge(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "bbolt_edge_test.db")
+
+	store, err := memory.NewBBoltStore(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create BBoltStore: %v", err)
+	}
+	defer store.Close()
+
+	edge := &pb.MemoryEdge{
+		Id:       "edge-del-1",
+		SourceId: "node-1",
+		TargetId: "node-2",
+		Relation: "TEST",
+	}
+
+	if err := store.SaveEdge(edge); err != nil {
+		t.Fatalf("SaveEdge failed: %v", err)
+	}
+
+	// Delete edge
+	if err := store.DeleteEdge("edge-del-1"); err != nil {
+		t.Fatalf("DeleteEdge failed: %v", err)
+	}
+
+	_, edges, err := store.LoadAll()
+	if err != nil {
+		t.Fatalf("LoadAll failed: %v", err)
+	}
+	if len(edges) != 0 {
+		t.Fatalf("Expected 0 edges after DeleteEdge, got %d", len(edges))
+	}
+}

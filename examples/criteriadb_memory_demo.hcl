@@ -26,6 +26,7 @@ step "remember_architectural_decision" {
   target = adapter.criteriadb.memory
   input {
     action      = "remember"
+    node_id     = "mem-zero-cgo"
     label       = "Zero-CGO Persistence"
     summary     = "CriteriaDB relies exclusively on pure-Go bbolt single-file storage for maximum cross-platform portability."
     type        = "fact"
@@ -42,6 +43,7 @@ step "remember_dependent_design" {
   target = adapter.criteriadb.memory
   input {
     action      = "remember"
+    node_id     = "mem-oci-publisher"
     label       = "Multi-Platform OCI Publisher"
     summary     = "The publish action cross-compiles linux and darwin binaries and packages them into a signed OCI container."
     type        = "fact"

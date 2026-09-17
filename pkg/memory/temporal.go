@@ -19,8 +19,16 @@ func EvaluateTemporal(node *pb.MemoryNode, query *pb.TemporalQuery) float64 {
 	}
 
 	temp := node.GetTemporal()
+	hasFilter := query.GetTenseFilter() != pb.Tense_TENSE_UNSPECIFIED ||
+		query.GetValidAt() != nil ||
+		query.GetStartTime() != nil ||
+		query.GetEndTime() != nil
+
+	if hasFilter && temp == nil {
+		return 0.0
+	}
 	if temp == nil {
-		return 0.5
+		return 1.0
 	}
 
 	// 1. Tense Filter Matching
@@ -61,7 +69,7 @@ func EvaluateTemporal(node *pb.MemoryNode, query *pb.TemporalQuery) float64 {
 	// 3. Time Range Filtering
 	if query.GetStartTime() != nil || query.GetEndTime() != nil {
 		if temp.GetTimestamp() == nil {
-			return 0.5
+			return 0.0
 		}
 		ts := temp.GetTimestamp().AsTime()
 

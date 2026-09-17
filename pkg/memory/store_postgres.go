@@ -54,18 +54,18 @@ func NewPostgresStore(connString string) (*PostgresStore, error) {
 func (s *PostgresStore) initSchema(ctx context.Context) error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS criteria_nodes (
-			id VARCHAR(255) PRIMARY KEY,
+			id TEXT PRIMARY KEY,
 			label TEXT NOT NULL DEFAULT '',
-			type VARCHAR(100) NOT NULL DEFAULT '',
-			project VARCHAR(255) NOT NULL DEFAULT '',
+			type TEXT NOT NULL DEFAULT '',
+			project TEXT NOT NULL DEFAULT '',
 			data BYTEA NOT NULL,
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
 		`CREATE TABLE IF NOT EXISTS criteria_edges (
-			id VARCHAR(255) PRIMARY KEY,
-			source_id VARCHAR(255) NOT NULL DEFAULT '',
-			target_id VARCHAR(255) NOT NULL DEFAULT '',
-			relation VARCHAR(100) NOT NULL DEFAULT '',
+			id TEXT PRIMARY KEY,
+			source_id TEXT NOT NULL DEFAULT '',
+			target_id TEXT NOT NULL DEFAULT '',
+			relation TEXT NOT NULL DEFAULT '',
 			data BYTEA NOT NULL,
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,

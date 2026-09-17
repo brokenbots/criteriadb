@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -44,6 +45,11 @@ func NewEmbedder(endpointURL, modelName string) *Embedder {
 func (e *Embedder) GenerateEmbedding(ctx context.Context, text string) ([]float32, error) {
 	if e == nil || e.EndpointURL == "" || text == "" {
 		return nil, nil
+	}
+
+	u, err := url.Parse(e.EndpointURL)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("invalid embedding endpoint URL: %s", e.EndpointURL)
 	}
 
 	reqPayload := openAIEmbeddingRequest{

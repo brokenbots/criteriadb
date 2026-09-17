@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/brokenbots/criteriadb/pkg/memory"
 	pb "github.com/brokenbots/criteriadb/pkg/pb/criteriadb/v1"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -29,11 +31,16 @@ type WorkflowEvent struct {
 
 // Ingester translates Criteria ND-JSON events into CriteriaDB MemoryNodes and MemoryEdges.
 type Ingester struct {
-	engine memory.Engine
+	engine              memory.Engine
+	mu                  sync.Mutex
+	lastEventByWorkflow map[string]string
 }
 
 func NewIngester(engine memory.Engine) *Ingester {
-	return &Ingester{engine: engine}
+	return &Ingester{
+		engine:              engine,
+		lastEventByWorkflow: make(map[string]string),
+	}
 }
 
 // IngestNDJSONEvent parses an ND-JSON line and stores it in CriteriaDB.
@@ -50,6 +57,13 @@ func (ing *Ingester) IngestNDJSONEvent(ctx context.Context, line []byte) (string
 	ts := evt.Timestamp
 	if ts.IsZero() {
 		ts = time.Now()
+	}
+
+	var props *structpb.Struct
+	if len(evt.Payload) > 0 {
+		if sp, err := structpb.NewStruct(evt.Payload); err == nil {
+			props = sp
+		}
 	}
 
 	node := &pb.MemoryNode{
@@ -73,7 +87,28 @@ func (ing *Ingester) IngestNDJSONEvent(ctx context.Context, line []byte) (string
 			CreatorAdapterType: evt.Adapter,
 			Visibility:         pb.VisibilityScope_VISIBILITY_WORKFLOW,
 		},
+		Properties: props,
 	}
 
-	return ing.engine.Remember(ctx, node, nil)
+	var edges []*pb.MemoryEdge
+	if evt.Workflow != "" {
+		ing.mu.Lock()
+		if prevID, ok := ing.lastEventByWorkflow[evt.Workflow]; ok && prevID != "" && prevID != evt.EventID {
+			edgeID := fmt.Sprintf("edge-seq-%d", time.Now().UnixNano())
+			edges = append(edges, &pb.MemoryEdge{
+				Id:       edgeID,
+				SourceId: prevID,
+				TargetId: evt.EventID,
+				Relation: "FOLLOWED_BY",
+				Temporal: &pb.TemporalInfo{
+					Timestamp: timestamppb.New(ts),
+					Tense:     pb.Tense_TENSE_PAST,
+				},
+			})
+		}
+		ing.lastEventByWorkflow[evt.Workflow] = evt.EventID
+		ing.mu.Unlock()
+	}
+
+	return ing.engine.Remember(ctx, node, edges)
 }

@@ -24,7 +24,7 @@ test: ## Run unit and integration tests (CGO_ENABLED=0)
 	CGO_ENABLED=$(CGO_ENABLED) go test -v ./...
 
 test-cover: ## Run test suite with coverage output (cover.out)
-	CGO_ENABLED=$(CGO_ENABLED) go test -coverprofile=cover.out -v ./...
+	CGO_ENABLED=$(CGO_ENABLED) go test -coverprofile=cover.out -coverpkg=./pkg/... -v ./test/...
 	go tool cover -func=cover.out
 
 proto: ## Generate Go protobuf structs and gRPC services from proto/
@@ -49,6 +49,7 @@ vet: ## Run go vet static analysis
 	go vet ./...
 
 lint: fmt vet ## Run formatting and static code linting
+	go run honnef.co/go/tools/cmd/staticcheck@latest ./...
 
 clean: ## Remove compiled binaries and temporary test artifacts
 	rm -rf bin/ cover.out *.db
